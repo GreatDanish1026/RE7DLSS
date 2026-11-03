@@ -33,3 +33,7 @@ Village's (renderOutputId at 520).
 0.1.0: RE2DLSS's design with RE7's ids: TAA registers 0/1/3; bloom redirect only for Integration's
 draw into the TAA output; tonemap in place (t0); PS_RetroFilm redirected in place to output size
 (t0 = tonemapped Y -> Z); CAS_CS replaced by our blit of the final image. No sharpening switch.
+
+Confirmed by the user (2026-11-03): looks good. Log: every DLSS mode via the dropdown
+(RE7DLSS.lua works in RE7): 2561x1440, 2227x1252, 1920x1080 -> 3840x2160 and DLAA 3840x2160, no
+fallbacks; texture mip bias -1.00 on 3030 material samplers (game started at 0.5).
