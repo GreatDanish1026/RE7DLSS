@@ -21,3 +21,15 @@ CAS_CS (csa2614017, identical). See RE2-FINDINGS.md and VILLAGE-FINDINGS.md.
 (No HUD in these frames.) Plan: RE2DLSS's design, with the TAA registers of Village (0/1/3), the
 bloom redirect only for ps50600766's draw into the TAA output, and ps43abceef redirected to output
 size like Village's Sharpness_PS. Next: DumpShaders bytecode to confirm names and conventions.
+
+## Shaders (docs/shaders) and 0.1.0
+
+ps0e421d9f = PreTonemap2_PS (ReadonlyDepth t0, HDRImage t1, PrevHDRImage t2, Velocity t3; same
+velocity maths as Village/RE2), ps50600766 = Integration (bloom upsample/add), ps0b3afad3 =
+LDRPostProcess_WithTonemap, ps43abceef = PS_RetroFilm (film look after the tonemap: LDRImage t0,
+texture coordinates, SceneInfo screenSize, EnvironmentInfo, cbNoiseParam). SceneInfo layout as
+Village's (renderOutputId at 520).
+
+0.1.0: RE2DLSS's design with RE7's ids: TAA registers 0/1/3; bloom redirect only for Integration's
+draw into the TAA output; tonemap in place (t0); PS_RetroFilm redirected in place to output size
+(t0 = tonemapped Y -> Z); CAS_CS replaced by our blit of the final image. No sharpening switch.

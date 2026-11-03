@@ -57,13 +57,14 @@ namespace rd {
 namespace {
 
 // Resident Evil 7's shaders (docs/FINDINGS.md); the names are the same as Village's.
-constexpr uint32_t kTaaPs = 0x89b84994;      // PreTonemap2_PS: t1 depth, t2 colour, t3 history, t4 velocity
-constexpr uint32_t kTaaDepth = 1, kTaaColor = 2, kTaaMotion = 4;
-constexpr uint32_t kBloomPs = 0xdd975721;    // NewFinal
-constexpr uint32_t kTonemapPs = 0x0936c4dc;  // LDRPostProcess_WithTonemap (colour t0)
+constexpr uint32_t kTaaPs = 0x0e421d9f;      // PreTonemap2_PS: t0 depth, t1 colour, t2 history, t3 velocity
+constexpr uint32_t kTaaDepth = 0, kTaaColor = 1, kTaaMotion = 3;
+constexpr uint32_t kBloomPs = 0x50600766;    // Integration: bloom upsample at every size; the last one adds
+                                              // into the TAA output (only that draw is redirected)
+constexpr uint32_t kTonemapPs = 0x0b3afad3;  // LDRPostProcess_WithTonemap (colour t0)
 constexpr uint32_t kTonemapColor = 0;
-constexpr uint32_t kCopyPs = 1;               // CopyImageWithDepthPS: not used in RE2
-constexpr uint32_t kSharpenPs = 2;            // Sharpness_PS: not used in RE2
+constexpr uint32_t kCopyPs = 1;               // CopyImageWithDepthPS: not used in RE7
+constexpr uint32_t kSharpenPs = 0x43abceef;  // PS_RetroFilm: after the tonemap (t0, texture coordinates)
 constexpr uint32_t kFinalCs = 0xa2614017;    // CAS_CS: FidelityFX CAS, stretches (and sharpens) to output size, u0
 constexpr int kToggleHotkey = VK_F9;
 
@@ -471,6 +472,7 @@ struct UpscaleFrame {
     bool bloomDone = false, tonemapDone = false, sharpenDone = false;
     Texture* final = nullptr;  // what goes over the game's stretch
     uint64_t lastFrame = UINT64_MAX;  // last present count with upscaling
+    resource taaOut = {0};     // the game's TAA target (bloom's last upsample adds into it)
 } g_up;
 
 // Descriptor slots rewritten for the tonemap, put back when upscaling stops in case the game
@@ -588,6 +590,7 @@ bool OnTaa(command_list* cl, ListState& s) {
         g_up.bloomDone = g_up.tonemapDone = g_up.sharpenDone = false;
         g_up.final = nullptr;
         g_up.lastFrame = g_frame;
+        g_up.taaOut = target;
         replaced = false;
     } else {
         Transition(cl, g_x, resource_usage::copy_source);
@@ -615,10 +618,12 @@ bool OnTaa(command_list* cl, ListState& s) {
 // the output-size image, and its render-size target only feeds the stretch we replace. The game's
 // state is put back at that stretch (OnFinalCompute).
 
-// Bloom (additive, texture coordinates): the game's draw goes into X.
-void OnBloom(command_list* cl, ListState&) {
+// Bloom (additive, texture coordinates): the game's draw into its TAA output goes into X. RE7's
+// Integration shader also draws every smaller upsample level; those stay as they are.
+void OnBloom(command_list* cl, ListState& s) {
     std::lock_guard<std::mutex> lock(g_resMutex);
     if (!g_up.active || g_up.bloomDone || !g_x.rtv.handle) return;
+    if (ViewResource(s.rtvs[0]) != g_up.taaOut) return;
     Transition(cl, g_x, resource_usage::render_target);
     BindFullTarget(cl, g_x.rtv, g_x.w, g_x.h);
     g_up.bloomDone = true;
@@ -685,15 +690,15 @@ bool OnTonemap(command_list* cl, ListState& s) {
     return false;  // the game's draw runs, at output size
 }
 
-// The game's sharpening (Sharpness_PS, reads t0, the game's Sharpness setting) at output size
-// into Z, from Y.
+// RE7's PS_RetroFilm (film look after the tonemap: reads t0 by texture coordinates, SceneInfo's
+// screen size for its noise): the game's draw redirected to output size, into Z from Y.
 bool OnSharpen(command_list* cl, ListState& s) {
     std::lock_guard<std::mutex> lock(g_resMutex);
-    if (!g_up.active || !g_up.tonemapDone || g_up.sharpenDone || !g_set.sharpen || !g_y.srv.handle) return false;
-    if (!RedrawAtOutputSize(cl, s, 0, g_y, g_z, "sharpened")) return false;
+    if (!g_up.active || !g_up.tonemapDone || g_up.sharpenDone || !g_y.srv.handle) return false;
+    if (!RedrawAtOutputSize(cl, s, 0, g_y, g_z, "film look", true)) return false;
     g_up.sharpenDone = true;
     g_up.final = &g_z;
-    return true;
+    return false;  // the game's draw runs, at output size
 }
 
 // The game's stretch to output size: its draw runs (it also writes the output-size depth), then
@@ -1045,7 +1050,7 @@ void UpscalerOverlay() {
         g_set.preset = idx == 1 ? 10 : idx == 2 ? 11 : 0;
         changed = true;
     }
-    if (kSharpenPs > 2) changed |= ImGui::Checkbox("Game sharpening at output size", &g_set.sharpen);
+    // (No sharpening switch: RE7's pass after the tonemap is its film look, always applied.)
     changed |= ImGui::Checkbox("Sharper textures at lower render sizes (needs a restart)", &g_set.textureDetail);
     ImGui::TextDisabled("Texture mip bias now: %.2f (%u samplers)", g_mipBias, g_samplersBiased.load());
     if (ImGui::TreeNode("Testing")) {
