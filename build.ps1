@@ -76,7 +76,7 @@ if ($Package) {
     @(
         "name=RE7DLSS - DLSS for Resident Evil 7",
         "version=v$version",
-        "description=Replaces the game's TAA with NVIDIA DLSS: DLAA, or DLSS upscaling from Quality to Performance with the game's bloom and tonemapping (RenoDX HDR works) and HUD on top at full resolution. Needs an NVIDIA RTX card, ReShade 6.8+ with add-on support, and REFramework for the DLSS mode dropdown. Settings: ReShade overlay (Home), Add-ons tab, RE7DLSS; F9 switches DLSS on and off.",
+        "description=Replaces the game's TAA with NVIDIA DLSS: DLAA, or DLSS upscaling from Quality to Performance with the game's bloom, tonemapping (RenoDX HDR works), film look and HUD on top at full resolution. Needs an NVIDIA RTX card, ReShade 6.8+ with add-on support, and REFramework for the DLSS mode dropdown. Settings: ReShade overlay (Home), Add-ons tab, RE7DLSS; F9 switches DLSS on and off.",
         "author=Scott Dinwiddie"
     ) | Set-Content "$mod\modinfo.ini" -Encoding ascii
 

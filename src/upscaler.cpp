@@ -1,6 +1,6 @@
 // DLSS in place of the game's TAA (docs/FINDINGS.md).
 //
-// Resident Evil 7, forked from VillageDLSS (the post chain is the same shaders; ids below).
+// Resident Evil 7, forked from RE2DLSS (forked from VillageDLSS; the same shaders, ids below).
 //
 // The TAA pass (PreTonemap2_PS) is a full-screen draw reading depth (reverse-Z), the scene colour
 // before exposure, last frame's TAA output and the velocity (NDC offset from the current to the
@@ -16,13 +16,12 @@
 // compute pass (CAS_CS, FidelityFX CAS) stretches it to the output. So:
 //   1. TAA: DLSS writes an output-size image (X). The game's TAA still runs at render size, so
 //      the passes after it at render size and the TAA history stay as they are.
-//   2. Motion blur (MotionBlur_ReconstructPS) reads render-size tiles by pixel position, so it's
-//      left out of the output-size image.
-//   3. Bloom composite (NewFinal, additive): the game's draw goes into X.
-//   4. Tonemap (LDRPostProcess_WithTonemap): reads t0 by pixel position and SceneInfo's screen
+//   2. Bloom (Integration, additive): its last upsample, into the TAA output, goes into X.
+//   3. Tonemap (LDRPostProcess_WithTonemap): reads t0 by pixel position and SceneInfo's screen
 //      size: the game's draw goes into Y at output size, t0 rewritten to X in its descriptor
 //      table, SceneInfo replaced by a copy with the output size.
-//   5. CAS_CS is skipped and Y is drawn into its output (our pass converts formats).
+//   4. Film look (PS_RetroFilm): the game's draw goes into Z at output size, from Y.
+//   5. CAS_CS is skipped and the final image is drawn into its output (our pass converts formats).
 // The HUD and the final output pass (and RenoDX) follow as usual.
 //
 // NGX records its own compute state and descriptor heaps on the game's command list, so the
@@ -96,7 +95,7 @@ struct Mode {
 const Mode kModes[] = {{"Game's Image Quality slider", 0},  {"DLAA (100%)", 1.0f},
                        {"Quality (67%)", 0.667f},          {"Balanced (58%)", 0.58f},
                        {"Performance (50%)", 0.5f}};
-// No Ultra Performance (33%): in RE2 its colours come out wrong (user, 2026-11-03).
+// No Ultra Performance (33%): left out as in RE2DLSS (its colours came out wrong in RE2).
 constexpr int kModeCount = sizeof(kModes) / sizeof(kModes[0]);
 
 void LoadSettings() {
@@ -786,7 +785,7 @@ bool OnCopy(command_list* cl, ListState& s) {
     return true;
 }
 
-// RE2's stretch to output size is a compute pass (CAS_CS, u0 = the output-size target the HUD is
+// The stretch to output size is a compute pass (CAS_CS, u0 = the output-size target the HUD is
 // drawn into). When upscaling, it's skipped and the output-size image is drawn into that target
 // with our own pass (it converts formats), through a render target view of our own.
 
