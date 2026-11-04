@@ -50,6 +50,7 @@ void DrawFrameGenStatus();
 void DrawFrameGenAdvanced();  // DLSS-G object separation, FSR HUD protection
 std::string FrameGenHeadline(bool* warn);
 std::string FrameGenDiag();  // inputs tagged / frames without them since the last call, and why
+bool FrameGenEnabled();  // chosen in the settings (it may still wait for a restart)
 // True while frame generation wants each frame's camera.
 bool FrameGenWantsCamera();
 // RE Engine's SceneInfo constant buffer (kSceneInfoBytes) of the frame's main view.

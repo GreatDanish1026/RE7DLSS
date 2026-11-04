@@ -556,11 +556,13 @@ void Unpatch() {
 }
 
 using PresentFn = HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain*, UINT, UINT);
+using SetFullscreenFn = HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain*, BOOL, IDXGIOutput*);
 using Present1Fn = HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain1*, UINT, UINT, const DXGI_PRESENT_PARAMETERS*);
 using CreateSwapChainFn = HRESULT(STDMETHODCALLTYPE*)(IDXGIFactory*, IUnknown*, DXGI_SWAP_CHAIN_DESC*, IDXGISwapChain**);
 using CreateForHwndFn = HRESULT(STDMETHODCALLTYPE*)(IDXGIFactory2*, IUnknown*, HWND, const DXGI_SWAP_CHAIN_DESC1*,
                                                     const DXGI_SWAP_CHAIN_FULLSCREEN_DESC*, IDXGIOutput*, IDXGISwapChain1**);
 PresentFn g_present = nullptr;
+SetFullscreenFn g_setFullscreen = nullptr;
 Present1Fn g_present1 = nullptr;
 CreateSwapChainFn g_createSwapChain = nullptr;
 CreateForHwndFn g_createForHwnd = nullptr;
@@ -570,6 +572,65 @@ HRESULT STDMETHODCALLTYPE HookPresent(IDXGISwapChain* sc, UINT sync, UINT flags)
     if (frame) BeforePresent();
     const HRESULT hr = g_present(sc, sync, flags);
     if (frame) AfterPresent();
+    return hr;
+}
+
+// Exclusive fullscreen through frame generation's swapchain: at launch (RE7) the game's first
+// requests fail with DXGI_ERROR_NOT_CURRENTLY_AVAILABLE (Windows: the window doesn't have focus,
+// is covered, or another program holds the screen) and the game gives up and stays in a small
+// window, while the same request succeeds a little later. So a failed request is retried with the
+// game window brought to the front, for up to 3 s in all, and the log says who had the focus.
+std::wstring ProcessName(DWORD pid) {
+    std::wstring name = L"?";
+    if (HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid)) {
+        wchar_t path[MAX_PATH] = {};
+        DWORD n = MAX_PATH;
+        if (QueryFullProcessImageNameW(h, 0, path, &n)) {
+            const wchar_t* slash = wcsrchr(path, L'\\');
+            name = slash ? slash + 1 : path;
+        }
+        CloseHandle(h);
+    }
+    return name;
+}
+
+std::wstring WindowInfo(HWND w) {
+    if (!w) return L"none";
+    wchar_t cls[96] = {}, title[96] = {};
+    GetClassNameW(w, cls, 96);
+    GetWindowTextW(w, title, 96);
+    DWORD pid = 0;
+    GetWindowThreadProcessId(w, &pid);
+    return std::wstring(cls) + L" \"" + title + L"\" (" + ProcessName(pid) + L")";
+}
+
+int g_fullscreenRetryMs = 3000;  // what's left of the retry budget
+
+HRESULT STDMETHODCALLTYPE HookSetFullscreenState(IDXGISwapChain* sc, BOOL fullscreen, IDXGIOutput* target) {
+    HRESULT hr = g_setFullscreen(sc, fullscreen, target);
+    if (!fullscreen || hr != DXGI_ERROR_NOT_CURRENTLY_AVAILABLE) {
+        if (fullscreen) Log("frame generation: exclusive fullscreen on (0x%08lx)", static_cast<unsigned long>(hr));
+        return hr;
+    }
+    DXGI_SWAP_CHAIN_DESC d = {};
+    sc->GetDesc(&d);
+    const HWND w = d.OutputWindow;
+    Log("frame generation: exclusive fullscreen not available yet; focus on %ls, game window %s%s",
+        WindowInfo(GetForegroundWindow()).c_str(), IsWindowVisible(w) ? "visible" : "hidden",
+        IsIconic(w) ? ", minimized" : "");
+    int tries = 0;
+    while (g_fullscreenRetryMs > 0 && FAILED(hr)) {
+        if (GetForegroundWindow() != w) {
+            if (IsIconic(w)) ShowWindow(w, SW_RESTORE);
+            SetForegroundWindow(w);
+        }
+        Sleep(100);
+        g_fullscreenRetryMs -= 100;
+        ++tries;
+        hr = g_setFullscreen(sc, fullscreen, target);
+    }
+    Log("frame generation: exclusive fullscreen %s after %d retries (0x%08lx; focus on %ls)", SUCCEEDED(hr) ? "on" : "still not available",
+        tries, static_cast<unsigned long>(hr), WindowInfo(GetForegroundWindow()).c_str());
     return hr;
 }
 
@@ -794,6 +855,7 @@ void* UpgradeFactory(IUnknown* factory) {
 void HookProxyPresent(IDXGISwapChain* sc) {
     const bool hooked = Patch(sc, 8, reinterpret_cast<void*>(&HookPresent), reinterpret_cast<void**>(&g_present)) &&
                         Patch(sc, 22, reinterpret_cast<void*>(&HookPresent1), reinterpret_cast<void**>(&g_present1));
+    Patch(sc, 10, reinterpret_cast<void*>(&HookSetFullscreenState), reinterpret_cast<void**>(&g_setFullscreen));
     g_upgraded = hooked;
     Log("frame generation: swapchain created through Streamline%s", hooked ? "" : " (present hook FAILED)");
 }
@@ -843,6 +905,7 @@ void HookFsrProxy(IDXGISwapChain* sc) {
     const bool hooked = Patch(sc, 8, reinterpret_cast<void*>(&HookPresent), reinterpret_cast<void**>(&g_present)) &&
                         Patch(sc, 22, reinterpret_cast<void*>(&HookPresent1), reinterpret_cast<void**>(&g_present1)) &&
                         Patch(sc, 2, reinterpret_cast<void*>(&HookRelease), reinterpret_cast<void**>(&g_release));
+    Patch(sc, 10, reinterpret_cast<void*>(&HookSetFullscreenState), reinterpret_cast<void**>(&g_setFullscreen));
     g_upgraded = hooked;
     Log("frame generation: swapchain created through FSR%s", hooked ? "" : " (present hook FAILED)");
 }
@@ -1416,6 +1479,8 @@ std::string FrameGenDiag() {
 }
 
 bool FrameGenWantsCamera() { return g_set.enabled && g_ready; }
+
+bool FrameGenEnabled() { return g_set.enabled; }
 
 bool FrameGenWantsHudless() {
     std::lock_guard<std::recursive_mutex> lock(g_mutex);
