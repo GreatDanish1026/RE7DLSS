@@ -1,4 +1,4 @@
-# RE7DLSS 1.1.0
+# RE7DLSS 1.1.1
 
 ReShade add-on for **Resident Evil 7** (current DirectX 12 version) that replaces the game's TAA
 with **NVIDIA DLSS** or **AMD FSR 3.1 / FSR 4**, and adds **DLSS or FSR frame generation**. The game
@@ -34,14 +34,14 @@ support, and REFramework for the render resolution dropdown.
 - **Sharper textures at lower render sizes** (on by default): a mip bias of log2(render scale) on
   the game's material textures, as NVIDIA recommends. Set when the game starts, so after changing
   the render resolution, restart the game for the textures to follow.
-- **DLSS model**: K (transformer, default), J, or NVIDIA's default.
+- **DLSS model**: Automatic (default: K, M at Performance, L at Ultra Performance, as NVIDIA recommends), or K, J, L or M (DLSS 4.5) at every resolution, or NVIDIA's default.
 
 Settings are in ReShade's Add-ons tab (Home key) under RE7DLSS: what's running at the top, then
 Settings, Status and Advanced tabs. They're saved in `ReShade.ini` under `[RE7DLSS]`.
 
 ## Install
 
-**With Fluffy Mod Manager**: put `RE7DLSS-1.1.0.zip` in Fluffy Mod Manager's `Games\RE7\Mods`
+**With Fluffy Mod Manager**: put `RE7DLSS-1.1.1.zip` in Fluffy Mod Manager's `Games\RE7\Mods`
 folder (or drag it onto the manager) and enable it. It installs into the game folder:
 
 - `RE7DLSS.addon64` (the add-on) and `nvngx_dlss.dll` (NVIDIA's DLSS runtime, 310.9.16)
