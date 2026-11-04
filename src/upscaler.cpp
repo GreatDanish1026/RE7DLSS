@@ -98,7 +98,7 @@ enum class Tech { Auto = 0, Dlss = 1, Fsr = 2 };
 struct Settings {
     bool enabled = true;   // F9; remembered across launches (on for a new install)
     int upscaler = 0;      // Tech: Auto = DLSS where NGX runs (RTX), else FSR
-    int preset = 11;       // NVSDK_NGX_DLSS_Hint_Render_Preset_K (transformer); 0 = DLSS default
+    int preset = dlss::kPresetAuto;  // DLSS model: Automatic, or NVSDK_NGX_DLSS_Hint_Render_Preset_* (0 = NVIDIA's)
     bool flipJitterX = false, flipJitterY = false;  // testing: jitter sign
     bool upscale = true;   // below the output size: DLSS to output size (else DLAA at render size)
     bool sharpen = true;   // the game's sharpening at output size when upscaling
@@ -118,7 +118,7 @@ constexpr int kModeCount = sizeof(kModes) / sizeof(kModes[0]);
 
 void LoadSettings() {
     reshade::get_config_value(nullptr, RD_PRODUCT, "Enabled", g_set.enabled);
-    reshade::get_config_value(nullptr, RD_PRODUCT, "Preset", g_set.preset);
+    reshade::get_config_value(nullptr, RD_PRODUCT, "DlssModel", g_set.preset);
     reshade::get_config_value(nullptr, RD_PRODUCT, "Upscaler", g_set.upscaler);
     reshade::get_config_value(nullptr, RD_PRODUCT, "FlipJitterX", g_set.flipJitterX);
     reshade::get_config_value(nullptr, RD_PRODUCT, "FlipJitterY", g_set.flipJitterY);
@@ -131,7 +131,7 @@ void LoadSettings() {
 
 void SaveSettings() {
     reshade::set_config_value(nullptr, RD_PRODUCT, "Enabled", g_set.enabled);
-    reshade::set_config_value(nullptr, RD_PRODUCT, "Preset", g_set.preset);
+    reshade::set_config_value(nullptr, RD_PRODUCT, "DlssModel", g_set.preset);
     reshade::set_config_value(nullptr, RD_PRODUCT, "Upscaler", g_set.upscaler);
     reshade::set_config_value(nullptr, RD_PRODUCT, "FlipJitterX", g_set.flipJitterX);
     reshade::set_config_value(nullptr, RD_PRODUCT, "FlipJitterY", g_set.flipJitterY);
@@ -1278,6 +1278,17 @@ void RestoreListState(command_list* cl) {
 
 namespace {
 
+// DLSS models offered (NVSDK_NGX_DLSS_Hint_Render_Preset_*; dlss::kPresetAuto = per render scale).
+const char* const kModelNames[] = {"Automatic (recommended)", "K (transformer)", "J (transformer)",
+                                   "L (transformer 2, DLSS 4.5)", "M (transformer 2, DLSS 4.5)", "NVIDIA's default"};
+const int kModelIds[] = {dlss::kPresetAuto, 11, 10, 12, 13, 0};
+constexpr int kModelCount = 6;
+int ModelIndex(int id) {
+    for (int i = 0; i < kModelCount; ++i)
+        if (kModelIds[i] == id) return i;
+    return 0;
+}
+
 // The upscaler that runs with the current settings (Auto resolves once DLSS was tried).
 Tech ResolvedTech() {
     if (g_set.upscaler == static_cast<int>(Tech::Dlss)) return Tech::Dlss;
@@ -1352,15 +1363,18 @@ void UpscalerOverlay() {
         else if (g_set.mode > 0)
             ImGui::TextColored(kWarn, "RE7DLSS.lua isn't running: is REFramework installed?");
         if (ResolvedTech() == Tech::Dlss) {
-            const char* presets[] = {"NVIDIA's default", "J (transformer)", "K (transformer, recommended)"};
-            int idx = g_set.preset == 10 ? 1 : g_set.preset == 11 ? 2 : 0;
+            int model = ModelIndex(g_set.preset);
             ImGui::SetNextItemWidth(ControlWidth());
-            if (ImGui::Combo("DLSS model", &idx, presets, 3)) {
-                g_set.preset = idx == 1 ? 10 : idx == 2 ? 11 : 0;
+            if (ImGui::Combo("DLSS model", &model, kModelNames, kModelCount)) {
+                g_set.preset = kModelIds[model];
                 changed = true;
             }
-            Help("Which DLSS model upscales. K is the newest transformer model. A DLSS override in the NVIDIA "
-                 "App takes precedence.");
+            Help("Which DLSS model upscales. Automatic follows NVIDIA's recommendation for the render "
+                 "resolution: K from 100% down to Balanced, M at Performance (50%), L at Ultra "
+                 "Performance (33%). K, J, L or M use that model at every resolution; L and M (DLSS 4.5's "
+                 "second-generation transformer) cost more, especially on RTX 20 and 30 cards. NVIDIA's "
+                 "default leaves it to the driver. A DLSS override set in the NVIDIA App takes "
+                 "precedence.");
         }
         ImGui::EndDisabled();
         DrawFrameGenSettings();
