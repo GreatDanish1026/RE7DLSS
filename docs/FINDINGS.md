@@ -37,3 +37,28 @@ draw into the TAA output; tonemap in place (t0); PS_RetroFilm redirected in plac
 Confirmed by the user (2026-11-03): looks good. Log: every DLSS mode via the dropdown
 (RE7DLSS.lua works in RE7): 2561x1440, 2227x1252, 1920x1080 -> 3840x2160 and DLAA 3840x2160, no
 fallbacks; texture mip bias -1.00 on 3030 material samplers (game started at 0.5).
+
+## 1.2.0: DLSS Ray Reconstruction (2026-11-09)
+
+Ported from RE2DLSS/RE3DLSS 1.2.0 (RE2DLSS `docs/FINDINGS.md` "Ray tracing chain" explains the
+passes). RE7's chain has RE3's shape (no VFX signal; rayTracingUpscale reads three signals) with
+its own shader builds. Matched pass by pass from `docs/captures/RE7DLSS-frame-1.txt` (RT on) and
+confirmed by name from the dumps in `docs/shaders/rt`:
+
+| Pass | RE7 | RE3 |
+|---|---|---|
+| rayTracingShading (diffuse: shY, cocg) | cs56c0dfe3 | csfc23ed5b |
+| rayTracingShading (specular) | csec2602f1 | csde6f8914 |
+| rayTracingSpatialAccumulation diffuse / specular | cs17e695da / cs2712f710 | csd6792963 / cs25501ade |
+| rayTracingMeanVariance | cs81dbf3d7 | cs0af21e0f |
+| rayTracingTemporalAccumulation specular / diffuse | cs38fb0c41 / cs9de23583 | csa4fd0f93 / cs94984fd1 |
+| rayTracingDeflickerSpecular | cs387ae12e | cs091f2a20 |
+| rayTracingBilateralFilter | cs3f14ab68 | cs905f94bf |
+| rayTracingUpscale (t2 base colour, t3 normal, t5-t7) | csba99f22d | cs4e928452 |
+
+RE7's depth (the TAA's t0) is plain 32-bit (r32_typeless), not RE2/RE3's 32-bit depth + stencil:
+the first build read it through an r32_float_x8_uint view and the device was lost at the first
+Ray Reconstruction frame. The guide pass now picks the view format from the depth's format.
+
+Test (2026-11-09, 4K HDR, Quality 2227x1252, ray tracing on, DLSS frame generation 2x): RR on
+ray-traced frames, switching on and off cleanly, model F, no errors; Super Resolution in menus.
