@@ -1,4 +1,4 @@
-# RE7DLSS 1.2.0
+# RE7DLSS 1.2.1
 
 ReShade add-on for **Resident Evil 7** (current DirectX 12 version) that replaces the game's TAA
 with **NVIDIA DLSS** or **AMD FSR 3.1 / FSR 4**, and adds **DLSS or FSR frame generation** and
@@ -52,7 +52,7 @@ Settings, Status and Advanced tabs. They're saved in `ReShade.ini` under `[RE7DL
 
 ## Install
 
-**With Fluffy Mod Manager**: put `RE7DLSS-1.2.0.zip` in Fluffy Mod Manager's `Games\RE7\Mods`
+**With Fluffy Mod Manager**: put `RE7DLSS-1.2.1.zip` in Fluffy Mod Manager's `Games\RE7\Mods`
 folder (or drag it onto the manager) and enable it. It installs into the game folder:
 
 - `RE7DLSS.addon64` (the add-on), `nvngx_dlss.dll` and `nvngx_dlssd.dll` (NVIDIA's DLSS and
