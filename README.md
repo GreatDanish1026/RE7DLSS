@@ -93,7 +93,7 @@ If the NVIDIA App has a DLSS model override for the game, it takes precedence ov
   generation 2x, and Ray Reconstruction (Quality, ray tracing on, with DLSS frame generation 2x).
 - Works with REFramework: REFramework hooks NVIDIA's frame generation DLL in a way that would hang
   the game at launch; the add-on steps around that hook while the game's swapchain is created.
-- FSR 3.1/4 and FSR frame generation through this add-on are untested on Radeon cards so far.
+- FSR 3.1/4 and FSR frame generation through this add-on are tested and working on AMD Radeon GPUs (DirectX 12).
 - A few frames during loading may show the game's own upscaling; that's expected.
 - The render scale the dropdown sets is the game's Image Quality setting, so the game saves it in
   `re7_config.ini`. With upscaling off (F9) or the dropdown on "Game's Image Quality slider", the

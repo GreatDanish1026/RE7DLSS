@@ -62,3 +62,12 @@ Ray Reconstruction frame. The guide pass now picks the view format from the dept
 
 Test (2026-11-09, 4K HDR, Quality 2227x1252, ray tracing on, DLSS frame generation 2x): RR on
 ray-traced frames, switching on and off cleanly, model F, no errors; Super Resolution in menus.
+
+## 1.3.0: AMD GPU Support (Camera Constants & Root Signature Resolution) (2026-11-12)
+
+On AMD Radeon GPUs running DirectX 12, the add-on previously reported "camera constants (SceneInfo) not found" and disabled upscaling. Root cause analysis revealed four distinct driver / API abstraction differences compared to NVIDIA:
+
+1. **Shader Visibility All Routing**: Constant buffers holding `SceneInfo` (b0 space0) are shared across vertex, pixel, and compute stages (`D3D12_SHADER_VISIBILITY_ALL`), mapped by ReShade as `shader_stage::all`. Prior code routed `(stages & all_compute) != 0` strictly to `s->compute` and dropped `s->graphics`. The update logic now routes dual-visibility push descriptors, descriptor tables, and push constants to both pipeline stages independently.
+2. **D3D12.1 Root Signature Descriptor Flags**: AMD drivers create pipeline layouts with `push_descriptors_with_ranges_and_flags`. `descriptor_tracking.cpp` was updated to normalize these into `push_descriptors`, and `IsB0Space0` identifies root parameter ranges regardless of flags.
+3. **Memory Heap & Resizable BAR / SAM**: Whether a buffer can be mapped is asked of D3D12 (`GetHeapProperties`): anything but a default heap or a custom heap without CPU access (ReBAR's GPU upload heap included) is mapped. A default heap is never mappable, so no map is attempted there.
+4. **Descriptor Table & Staging Fallbacks**: Constant buffers bound through descriptor tables are detected via `TableCbv`. Once a SceneInfo buffer can't be mapped, buffer copies and updates big enough to hold SceneInfo are tracked; those up to 64 KB keep their bytes when recorded (`NoteCopy`/`NoteUpdate`), so the read works even if the upload buffer is destroyed before the TAA draw. Until then copies aren't tracked (no cost on systems that never need it). Only the pass's own SceneInfo is used: no fallback to an older buffer or the previous frame's constants (wrong camera, and a destroyed buffer could be read).
