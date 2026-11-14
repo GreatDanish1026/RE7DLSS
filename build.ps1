@@ -37,14 +37,16 @@ $cmd = @(
     "fxc /nologo /T cs_5_1 /E main /O3 /Vn kGuideCs /Fh `"$obj\guide_cs.h`" `"$root\src\guide.hlsl`" >nul",
     "fxc /nologo /T cs_5_1 /E main /O3 /Vn kGuideViewCs /Fh `"$obj\guide_view_cs.h`" `"$root\src\guide_view.hlsl`" >nul",
     "fxc /nologo /T cs_5_1 /E main /O3 /Vn kRcasCs /Fh `"$obj\rcas_cs.h`" `"$root\src\rcas.hlsl`" >nul",
-    ("cl /nologo /std:c++17 /O2 /EHsc /MT /W3 /D_CRT_SECURE_NO_WARNINGS /DNOMINMAX " +
+    # /MP compiles the sources in parallel; /INCREMENTAL:NO /OPT:REF /OPT:ICF keep the release DLL
+    # free of incremental-link padding and unused code (/DEBUG would turn those off).
+    ("cl /nologo /MP /std:c++17 /O2 /EHsc /MT /W3 /D_CRT_SECURE_NO_WARNINGS /DNOMINMAX " +
      "/I `"$obj`" /I `"$root\third_party\imgui`" /I `"$root\third_party\reshade\include`" /I `"$root\third_party\dlss\include`" " +
      "/I `"$root\third_party\streamline\include`" " +
      "/I `"$root\third_party\fidelityfx\api\include`" /I `"$root\third_party\fidelityfx\upscalers\include`" /I `"$root\third_party\fidelityfx\framegeneration\include`" " +
      "/Fo`"$obj\\`" `"$root\src\main.cpp`" `"$root\src\upscaler.cpp`" `"$root\src\dlss.cpp`" `"$root\src\fsr.cpp`" " +
      "`"$root\src\framegen.cpp`" `"$root\src\fsrfg.cpp`" `"$root\third_party\reshade\utils\descriptor_tracking.cpp`" " +
      "user32.lib advapi32.lib ole32.lib d3d12.lib dxgi.lib `"$root\third_party\dlss\lib\nvsdk_ngx_s.lib`" " +
-     "/link /DLL /OUT:`"$addon`" /PDB:`"$obj\RE7DLSS.pdb`" /DEBUG")
+     "/link /DLL /OUT:`"$addon`" /PDB:`"$obj\RE7DLSS.pdb`" /DEBUG /INCREMENTAL:NO /OPT:REF /OPT:ICF")
 ) -join " && "
 cmd /c $cmd
 if ($LASTEXITCODE) { throw "build failed" }
@@ -113,7 +115,7 @@ if ($Package) {
     @(
         "name=RE7DLSS - DLSS, FSR 3/4 and frame generation for Resident Evil 7",
         "version=v$version",
-        "description=Replaces the game's TAA with NVIDIA DLSS or AMD FSR 3.1 / FSR 4: native anti-aliasing (DLAA), or upscaling with the game's bloom, tonemapping (RenoDX HDR works), film look and HUD on top at full resolution; adds DLSS or FSR frame generation, and experimental DLSS Ray Reconstruction for the ray-traced reflections and lighting. DLSS needs an NVIDIA RTX card (frame generation RTX 40/50); FSR runs on any DirectX 12 GPU. Needs ReShade 6.8+ with add-on support, and REFramework for the render resolution dropdown. Settings: ReShade overlay (Home), Add-ons tab, RE7DLSS; F9 switches upscaling on and off.",
+        "description=Replaces the game's TAA with NVIDIA DLSS or AMD FSR 3.1 / FSR 4: native anti-aliasing (DLAA), or upscaling with the game's bloom, tonemapping (RenoDX HDR works), film look and HUD on top at full resolution; adds DLSS or FSR frame generation, and DLSS Ray Reconstruction for the ray-traced reflections and lighting. DLSS needs an NVIDIA RTX card (frame generation RTX 40/50); FSR runs on any DirectX 12 GPU. Needs ReShade 6.8+ with add-on support, and REFramework for the render resolution dropdown. Settings: ReShade overlay (Home), Add-ons tab, RE7DLSS; F9 switches upscaling on and off.",
         "author=Scott Dinwiddie"
     ) | Set-Content "$mod\modinfo.ini" -Encoding ascii
 
