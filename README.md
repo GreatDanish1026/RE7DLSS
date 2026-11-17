@@ -1,4 +1,4 @@
-# RE7DLSS 1.3.2
+# RE7DLSS 1.3.3
 
 ReShade add-on for **Resident Evil 7** (current DirectX 12 version) that replaces the game's TAA
 with **NVIDIA DLSS** or **AMD FSR 3.1 / FSR 4**, and adds **DLSS or FSR frame generation** and
@@ -38,6 +38,17 @@ support, and REFramework for the render resolution dropdown.
 - **Game exposure** (on by default, Advanced tab): DLSS and FSR 3.1 get the picture's real exposure (the game's colour is already exposed) instead of
   estimating it themselves: steadier brightness and less ghosting when the lighting changes. FSR 4 measures its own
   (1.3.0 gave it the game's too, which crashed games on Radeon cards).
+- **Effect mask** (on by default, Advanced tab; 1.3.3): the game's anti-aliasing has no mask for
+  particles, fire, smoke and other effects, so the add-on makes one: it compares the picture just
+  before the game draws its effects with the picture after. The game's volumetric fog is left out of it. DLSS, Ray Reconstruction and
+  FSR then trust the current frame more there, against ghosting and smearing on effects. The
+  Advanced tab can show the mask, for testing.
+- **Motion vectors without the camera jitter** (on by default, Advanced tab; 1.3.3): the game's motion
+  vectors include each frame's camera jitter; DLSS, Ray Reconstruction, FSR and frame generation now
+  get them without it.
+  With the jitter, DLSS left soft blocky patches on still surfaces at Performance, and Ray
+  Reconstruction could flicker on characters.
+  A second switch keeps frame generation on the game's own motion vectors.
 - **Full-resolution reflections** (off by default, Settings tab): the bundled REFramework script
   makes the game ray trace its reflections at the full render resolution instead of a reduced one:
   sharper reflections, especially with Ray Reconstruction, at a GPU cost.
@@ -59,7 +70,7 @@ Settings, Status and Advanced tabs. They're saved in `ReShade.ini` under `[RE7DL
 
 ## Install
 
-**With Fluffy Mod Manager**: put `RE7DLSS-1.3.2.zip` in Fluffy Mod Manager's `Games\RE7\Mods`
+**With Fluffy Mod Manager**: put `RE7DLSS-1.3.3.zip` in Fluffy Mod Manager's `Games\RE7\Mods`
 folder (or drag it onto the manager) and enable it. It installs into the game folder:
 
 - `RE7DLSS.addon64` (the add-on), `nvngx_dlss.dll` and `nvngx_dlssd.dll` (NVIDIA's DLSS and
