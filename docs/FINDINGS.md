@@ -72,3 +72,14 @@ Ray Reconstruction and FSR motion in render pixels without it (ini MotionFix, on
 good"; in RE3 the blockiness on Jill's face is gone (user), as in RE3DLSS-DX11. The game cycles 16
 jitter positions (logged); a longer sequence was tried in RE2DLSS and dropped (shimmer with ray
 tracing).
+
+## Effect mask (2026-11-17)
+
+RE7's TAA has no effect mask; the add-on makes one. Capture with effects (docs/captures/
+RE7DLSS-frame-effects.txt): after the lighting compose psae999a4e the game draws soft-particle
+quads (psed48b669, reading depth) and GPU particles into the scene colour, then a half-resolution
+layer (960x540 rgba16f + r16f) is blended in by psab1c9a8c before the TAA. The scene colour is copied
+at the first colour-only draw after the compose; effmask.hlsl writes the relative change into an
+r8 mask for DLSS / Ray Reconstruction (bias current colour) and FSR (reactive). Made at the TAA, the
+mask turned the volumetric fog red (user): the half-resolution layer is the fog, so the mask is now
+made just before psab1c9a8c's draw.

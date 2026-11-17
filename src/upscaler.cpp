@@ -82,6 +82,9 @@ constexpr int kTaaMask = -1;
 // (capture 2026-11-17: psed48b669 soft-particle quads, GPU particles, then a half-resolution layer
 // blended in by psab1c9a8c).
 constexpr uint32_t kComposePs = 0xae999a4e;
+// The half-resolution layer is volumetric fog (the mask turned it red, user 2026-11-17): the mask is
+// made just before it is blended in, not at the TAA.
+constexpr uint32_t kEffEndPs = 0xab1c9a8c;
 constexpr uint32_t kBloomPs = 0x50600766;    // Integration: bloom upsample at every size; the last one adds
                                               // into the TAA output (only that draw is redirected)
 constexpr uint32_t kTonemapPs = 0x0b3afad3;  // LDRPostProcess_WithTonemap (colour t0)
@@ -1460,6 +1463,21 @@ bool EffMake(command_list* cl, device* dev, resource color, uint32_t w, uint32_t
     return true;
 }
 
+// The mask made at kEffEndPs's draw, before the game blends in its volumetric fog: its render
+// target 0 is the scene colour (render target state); the game's bindings are put back after.
+void EffMakeBefore(command_list* cl, const ListState& s) {
+    if (!g_set.enabled || !g_set.effectMask || g_effSnapped != g_frame || !s.rtvCount) return;
+    device* dev = cl->get_device();
+    const resource color = ViewResource(s.rtvs[0]);
+    if (!color.handle) return;
+    const resource_desc d = dev->get_resource_desc(color);
+    std::lock_guard<std::mutex> lock(g_resMutex);
+    cl->barrier(color, resource_usage::render_target, resource_usage::shader_resource);
+    const bool made = EffMake(cl, dev, color, d.texture.width, d.texture.height);
+    cl->barrier(color, resource_usage::shader_resource, resource_usage::render_target);
+    if (made) Restore(cl, s);
+}
+
 // Debug view (Advanced, not saved): the mask in red over the upscaled image.
 bool g_effView = false;
 resource_view g_effViewUav = {0};
@@ -1810,7 +1828,8 @@ bool OnTaa(command_list* cl, ListState& s) {
             mvScaleX = mvScaleY = 1.0f;
         }
     }
-    if (kTaaMask < 0) EffMake(cl, dev, color, renderW, renderH);  // EffectMask() hands it over
+    // EffectMask() hands it over; made earlier in the frame when kEffEndPs ran.
+    if (kTaaMask < 0 && g_effMade != g_frame) EffMake(cl, dev, color, renderW, renderH);
     bool ok;
     bool usedRr = false;
     if (tech == Tech::Dlss) {
@@ -2445,6 +2464,7 @@ bool UpscalerOnDraw(command_list* cl, uint32_t vertices, uint32_t instances) {
     if (vertices != 3 || instances != 1) return false;
     const uint32_t id = PipelinePs(s->pipe);
     if (kTaaMask < 0 && id == kComposePs) EffArm(*s);
+    if (kTaaMask < 0 && kEffEndPs && id == kEffEndPs) EffMakeBefore(cl, *s);
     if (id == kTaaPs) {  // the upscaler first: frame generation can then get its motion vectors
         const bool replaced = g_set.enabled && OnTaa(cl, *s);
         GiveFrameGen(cl, *s);
