@@ -83,3 +83,6 @@ at the first colour-only draw after the compose; effmask.hlsl writes the relativ
 r8 mask for DLSS / Ray Reconstruction (bias current colour) and FSR (reactive). Made at the TAA, the
 mask turned the volumetric fog red (user): the half-resolution layer is the fog, so the mask is now
 made just before psab1c9a8c's draw.
+Tested (user, 2026-11-17): with the mask made before psab1c9a8c the fog stays black and the other
+effects show red. Ray Reconstruction with "skip all but the spatial passes" (the new default): no
+noise in RE7 (unlike Village, which keeps the game's denoiser).
