@@ -1,4 +1,4 @@
-# RE7DLSS 1.3.3
+# RE7DLSS 1.3.4
 
 ReShade add-on for **Resident Evil 7** (current DirectX 12 version) that replaces the game's TAA
 with **NVIDIA DLSS** or **AMD FSR 3.1 / FSR 4**, and adds **DLSS or FSR frame generation** and
@@ -58,10 +58,13 @@ support, and REFramework for the render resolution dropdown.
   NVIDIA's DLSS Ray Reconstruction 310.9.16 replaces DLSS Super Resolution. It upscales and cleans up
   the noise in the ray-traced lighting and reflections, with guides built from the game's
   G-buffer and camera. **Ray Reconstruction model**:
-  NVIDIA's default, D, E or F; an override in the NVIDIA App takes precedence. By default the game's
-  frame-to-frame denoising is skipped and Ray Reconstruction does it (the game's spatial passes
-  still fill in its sparse rays); the Advanced tab can keep the game's whole denoiser instead, or
-  skip all of it. Advanced also shows the surface pictures Ray
+  NVIDIA's default, D, E or F; an override in the NVIDIA App takes precedence. By default (Auto,
+  1.3.4) the add-on looks at how finely the game ray traces: at the render resolution (as with a
+  Graphics Enhancement script's higher ray tracing quality) the game's frame-to-frame denoising is
+  skipped and Ray Reconstruction does it; at the game's own, smaller size the rays are too sparse
+  for that, so the game's denoiser stays and Ray Reconstruction cleans up after it. The Advanced tab
+  can choose either always, or skip all of the game's denoiser.
+  Advanced also shows the surface pictures Ray
   Reconstruction gets (colour, reflectivity, normals, roughness). Without ray tracing (menus,
   some cutscenes, or ray tracing off) it uses Super Resolution.
 
@@ -70,7 +73,7 @@ Settings, Status and Advanced tabs. They're saved in `ReShade.ini` under `[RE7DL
 
 ## Install
 
-**With Fluffy Mod Manager**: put `RE7DLSS-1.3.3.zip` in Fluffy Mod Manager's `Games\RE7\Mods`
+**With Fluffy Mod Manager**: put `RE7DLSS-1.3.4.zip` in Fluffy Mod Manager's `Games\RE7\Mods`
 folder (or drag it onto the manager) and enable it. It installs into the game folder:
 
 - `RE7DLSS.addon64` (the add-on), `nvngx_dlss.dll` and `nvngx_dlssd.dll` (NVIDIA's DLSS and
