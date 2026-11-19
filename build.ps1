@@ -39,14 +39,16 @@ $cmd = @(
     "fxc /nologo /T cs_5_1 /E main /O3 /Vn kRcasCs /Fh `"$obj\rcas_cs.h`" `"$root\src\rcas.hlsl`" >nul",
     "fxc /nologo /T cs_5_1 /E main /O3 /Vn kMvFixCs /Fh `"$obj\mvfix_cs.h`" `"$root\src\mvfix.hlsl`" >nul",
     "fxc /nologo /T cs_5_1 /E main /O3 /Vn kEffMaskCs /Fh `"$obj\effmask_cs.h`" `"$root\src\effmask.hlsl`" >nul",
-    ("cl /nologo /std:c++17 /O2 /EHsc /MT /W3 /D_CRT_SECURE_NO_WARNINGS /DNOMINMAX " +
+    # /MP compiles the sources in parallel; /INCREMENTAL:NO /OPT:REF /OPT:ICF keep the release DLL
+    # free of incremental-link padding and unused code (/DEBUG would turn those off). (PR #3)
+    ("cl /nologo /MP /std:c++17 /O2 /EHsc /MT /W3 /D_CRT_SECURE_NO_WARNINGS /DNOMINMAX " +
      "/I `"$obj`" /I `"$root\third_party\imgui`" /I `"$root\third_party\reshade\include`" /I `"$root\third_party\dlss\include`" " +
      "/I `"$root\third_party\streamline\include`" " +
      "/I `"$root\third_party\fidelityfx\api\include`" /I `"$root\third_party\fidelityfx\upscalers\include`" /I `"$root\third_party\fidelityfx\framegeneration\include`" " +
      "/Fo`"$obj\\`" `"$root\src\main.cpp`" `"$root\src\upscaler.cpp`" `"$root\src\dlss.cpp`" `"$root\src\fsr.cpp`" " +
      "`"$root\src\framegen.cpp`" `"$root\src\fsrfg.cpp`" `"$root\third_party\reshade\utils\descriptor_tracking.cpp`" " +
      "user32.lib advapi32.lib ole32.lib d3d12.lib dxgi.lib `"$root\third_party\dlss\lib\nvsdk_ngx_s.lib`" " +
-     "/link /DLL /OUT:`"$addon`" /PDB:`"$obj\RE7DLSS.pdb`" /DEBUG")
+     "/link /DLL /OUT:`"$addon`" /PDB:`"$obj\RE7DLSS.pdb`" /DEBUG /INCREMENTAL:NO /OPT:REF /OPT:ICF")
 ) -join " && "
 cmd /c $cmd
 if ($LASTEXITCODE) { throw "build failed" }

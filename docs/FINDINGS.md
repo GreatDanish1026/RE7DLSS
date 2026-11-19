@@ -86,3 +86,14 @@ made just before psab1c9a8c's draw.
 Tested (user, 2026-11-17): with the mask made before psab1c9a8c the fog stays black and the other
 effects show red. Ray Reconstruction with "skip all but the spatial passes" (the new default): no
 noise in RE7 (unlike Village, which keeps the game's denoiser).
+
+## AMD Radeon: camera constants (contributed, pull request #3, merged 2026-11-19)
+
+On AMD Radeon GPUs running DirectX 12, the add-on previously reported "camera constants (SceneInfo) not found" and disabled upscaling. Root cause analysis revealed four distinct driver / API abstraction differences compared to NVIDIA:
+
+1. **Shader Visibility All Routing**: Constant buffers holding `SceneInfo` (b0 space0) are shared across vertex, pixel, and compute stages (`D3D12_SHADER_VISIBILITY_ALL`), mapped by ReShade as `shader_stage::all`. Prior code routed `(stages & all_compute) != 0` strictly to `s->compute` and dropped `s->graphics`. The update logic now routes dual-visibility push descriptors, descriptor tables, and push constants to both pipeline stages independently.
+2. **D3D12.1 Root Signature Descriptor Flags**: AMD drivers create pipeline layouts with `push_descriptors_with_ranges_and_flags`. `descriptor_tracking.cpp` was updated to normalize these into `push_descriptors`, and `IsB0Space0` identifies root parameter ranges regardless of flags.
+3. **Memory Heap & Resizable BAR / SAM**: Whether a buffer can be mapped is asked of D3D12 (`GetHeapProperties`): anything but a default heap or a custom heap without CPU access (ReBAR's GPU upload heap included) is mapped. A default heap is never mappable, so no map is attempted there.
+4. **Descriptor Table & Staging Fallbacks**: Constant buffers bound through descriptor tables are detected via `TableCbv`. Once a SceneInfo buffer can't be mapped, buffer copies and updates big enough to hold SceneInfo are tracked; those up to 64 KB keep their bytes when recorded (`NoteCopy`/`NoteUpdate`), so the read works even if the upload buffer is destroyed before the TAA draw. Until then copies aren't tracked (no cost on systems that never need it). Only the pass's own SceneInfo is used: no fallback to an older buffer or the previous frame's constants (wrong camera, and a destroyed buffer could be read).
+
+Review notes (2026-11-19): root signatures (shader visibility, 1.1 flags) come from the game, not the driver, and ReShade reports graphics and compute root bindings separately, so items 1 and 2 are likely no-ops kept for safety; the likely Radeon fix is item 3 (D3D12 heap properties: ReBAR / Smart Access Memory GPU-upload heaps are mappable) with item 4. The fallback to the compute bindings for a draw's SceneInfo was dropped on merge (it could read another pass's constants). Not tested on Radeon by us.
