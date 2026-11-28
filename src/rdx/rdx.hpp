@@ -137,6 +137,7 @@ struct ResInfo {
 void TrackResource(ID3D12Resource* r, bool fireEvents, D3D12_RESOURCE_STATES initial);
 bool ResourceDesc(ID3D12Resource* r, resource_desc* out);  // tracked (alive) ones
 bool IsDead(ID3D12Resource* r);                            // tracked once, since destroyed
+void MarkAlive(ID3D12Resource* r);                         // known alive now (a swapchain buffer at a reused address)
 ID3D12Resource* ResourceAtVa(uint64_t va, uint64_t* offset);
 resource_desc DescOf(ID3D12Resource* r);  // tracked description, or asked of D3D12
 

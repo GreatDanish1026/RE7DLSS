@@ -1,4 +1,4 @@
-# RE7DLSS 2.0.0
+# RE7DLSS 2.0.1
 
 REFramework plugin for **Resident Evil 7** (current DirectX 12 version) that replaces the game's TAA
 with **NVIDIA DLSS** or **AMD FSR 3.1 / FSR 4**, and adds **DLSS or FSR frame generation** and
@@ -15,6 +15,10 @@ with it.
 
 ## What's new in 2.0
 
+- **2.0.1**: steadier with swapchain resizes (switching into exclusive full screen, changing the
+  resolution): the picture could drop to the render resolution afterwards. `D3D12CreateDevice` is
+  also hooked in the function itself, for setups that hold its address early (found with
+  VillageDLSS 2.0.0).
 - **No ReShade needed.** RE7DLSS is now one REFramework plugin (`reframework\plugins\RE7DLSS.dll`)
   with its own DirectX 12 hooks; everything it does is unchanged. With ReShade installed (for
   RenoDX HDR, for example), the two work together.

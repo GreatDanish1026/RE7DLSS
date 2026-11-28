@@ -259,6 +259,15 @@ bool IsDead(ID3D12Resource* r) {
     return g_dead.count(r) != 0;
 }
 
+void MarkAlive(ID3D12Resource* r) {
+    {
+        std::shared_lock<std::shared_mutex> lock(g_resMutex);
+        if (!g_dead.count(r)) return;
+    }
+    std::unique_lock<std::shared_mutex> lock(g_resMutex);
+    g_dead.erase(r);
+}
+
 ID3D12Resource* ResourceAtVa(uint64_t va, uint64_t* offset) {
     std::shared_lock<std::shared_mutex> lock(g_resMutex);
     auto it = g_vas.upper_bound(va);
@@ -273,8 +282,10 @@ resource_desc DescOf(ID3D12Resource* r) {
     resource_desc d;
     if (!r) return d;
     if (ResourceDesc(r, &d)) return d;
-    if (IsDead(r)) return resource_desc();
-    // Not created through the hooks (swapchain buffers, others'): asked of D3D12.
+    // Not created through the hooks (swapchain buffers, others'): asked of D3D12. Not refused when
+    // the address once held a freed game resource: DXGI's back buffers can sit at such an address
+    // after a resize (Village), and callers only ask about resources they hold now (views of freed
+    // resources already resolve to none in get_resource_from_view).
     const D3D12_RESOURCE_DESC rd = r->GetDesc();
     D3D12_HEAP_PROPERTIES heap = {};
     D3D12_HEAP_FLAGS flags = D3D12_HEAP_FLAG_NONE;

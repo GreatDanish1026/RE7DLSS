@@ -1016,6 +1016,7 @@ HRESULT STDMETHODCALLTYPE HkResize(IDXGISwapChain* sc, UINT n, UINT w, UINT h, D
     Swapchain* sw = SwapchainOf(sc);
     if (sw) Invoke<addon_event::destroy_swapchain>(static_cast<swapchain*>(sw), true);
     const HRESULT hr = O<decltype(&HkResize)>(sc, kScResizeBuffers)(sc, n, w, h, f, flags);
+    if (sw) Log("swapchain resized: %u buffers %ux%u format %d -> 0x%08lx", n, w, h, f, static_cast<unsigned long>(hr));
     if (sw && SUCCEEDED(hr)) Invoke<addon_event::init_swapchain>(static_cast<swapchain*>(sw), true);
     return hr;
 }
@@ -1024,6 +1025,7 @@ HRESULT STDMETHODCALLTYPE HkResize1(IDXGISwapChain3* sc, UINT n, UINT w, UINT h,
     Swapchain* sw = SwapchainOf(sc);
     if (sw) Invoke<addon_event::destroy_swapchain>(static_cast<swapchain*>(sw), true);
     const HRESULT hr = O<decltype(&HkResize1)>(sc, kScResizeBuffers1)(sc, n, w, h, f, flags, mask, queues);
+    if (sw) Log("swapchain resized (1): %u buffers %ux%u format %d -> 0x%08lx", n, w, h, f, static_cast<unsigned long>(hr));
     if (sw && SUCCEEDED(hr)) Invoke<addon_event::init_swapchain>(static_cast<swapchain*>(sw), true);
     return hr;
 }
@@ -1127,9 +1129,29 @@ void HookSystemFactory() {
 using CreateDeviceFn = HRESULT(WINAPI*)(IUnknown*, D3D_FEATURE_LEVEL, REFIID, void**);
 CreateDeviceFn g_realCreateDevice = nullptr;
 
+// The module an address is in (nullptr: none).
+HMODULE ModuleAt(void* p) {
+    HMODULE m = nullptr;
+    GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, static_cast<LPCWSTR>(p), &m);
+    return m;
+}
+
 HRESULT WINAPI HkD3D12CreateDevice(IUnknown* adapter, D3D_FEATURE_LEVEL fl, REFIID riid, void** out) {
+    void* const caller = _ReturnAddress();
     const HRESULT hr = g_realCreateDevice(adapter, fl, riid, out);
+    {
+        static std::atomic<int> n{0};
+        if (n++ < 8) {
+            char by[MAX_PATH] = "?";
+            if (HMODULE m = ModuleAt(caller)) GetModuleFileNameA(m, by, MAX_PATH);
+            Log("D3D12CreateDevice from %s (level %x, %s) -> 0x%08lx", strrchr(by, '\\') ? strrchr(by, '\\') + 1 : by, fl,
+                out ? "device" : "support check", static_cast<unsigned long>(hr));
+        }
+    }
     if (FAILED(hr) || !out || !*out) return hr;
+    // REFramework's own test device (its D3D12 hook setup) isn't the game's. The game may create its
+    // device itself or through a helper library (AMD's AGS), so other callers count.
+    if (HMODULE m = ModuleAt(caller); m && m == GetModuleHandleW(L"dinput8.dll")) return hr;
     ID3D12Device* d = nullptr;
     if (FAILED(static_cast<IUnknown*>(*out)->QueryInterface(IID_PPV_ARGS(&d)))) return hr;
     d->Release();
@@ -1141,7 +1163,9 @@ HRESULT WINAPI HkD3D12CreateDevice(IUnknown* adapter, D3D_FEATURE_LEVEL fl, REFI
     HookDevice(d);
     CreateDeviceWrapper(d);
     OnDestroyed(d, &DeviceGone, nullptr);
-    Log("game's D3D12 device %p", static_cast<void*>(d));
+    char by[MAX_PATH] = "?";
+    if (HMODULE m = ModuleAt(caller)) GetModuleFileNameA(m, by, MAX_PATH);
+    Log("game's D3D12 device %p (created by %s)", static_cast<void*>(d), strrchr(by, '\\') ? strrchr(by, '\\') + 1 : by);
     Invoke<addon_event::init_device>(Dev());
     return hr;
 }
@@ -1151,6 +1175,14 @@ GetProcFn g_realGetProc = nullptr;
 
 FARPROC WINAPI HkGetProcAddress(HMODULE m, LPCSTR name) {
     FARPROC p = g_realGetProc(m, name);
+    if (reinterpret_cast<uintptr_t>(name) > 0xFFFF && !strncmp(name, "D3D12", 5)) {
+        static std::atomic<int> n{0};
+        if (n++ < 12) {
+            char mod[MAX_PATH] = "?";
+            GetModuleFileNameA(m, mod, MAX_PATH);
+            Log("game GetProcAddress(%s, %s) -> %p", strrchr(mod, '\\') ? strrchr(mod, '\\') + 1 : mod, name, reinterpret_cast<void*>(p));
+        }
+    }
     if (p && reinterpret_cast<uintptr_t>(name) > 0xFFFF && !strcmp(name, "D3D12CreateDevice")) {
         if (!g_realCreateDevice) g_realCreateDevice = reinterpret_cast<CreateDeviceFn>(p);
         if (reinterpret_cast<CreateDeviceFn>(p) == g_realCreateDevice) return reinterpret_cast<FARPROC>(&HkD3D12CreateDevice);
@@ -1171,6 +1203,110 @@ HRESULT WINAPI HkFactory1(REFIID riid, void** out) {
 HRESULT WINAPI HkFactory2(UINT flags, REFIID riid, void** out) {
     HookSystemFactory();
     return g_realFactory2(flags, riid, out);
+}
+
+// Executable memory within 2 GB above <addr> (the module it's in), for jumps with 32-bit offsets.
+uint8_t* AllocNear(void* addr) {
+    HMODULE m = ModuleAt(addr);
+    if (!m) return nullptr;
+    auto* base = reinterpret_cast<uint8_t*>(m);
+    auto* nt = reinterpret_cast<IMAGE_NT_HEADERS*>(base + reinterpret_cast<IMAGE_DOS_HEADER*>(base)->e_lfanew);
+    const uintptr_t start = (reinterpret_cast<uintptr_t>(base) + nt->OptionalHeader.SizeOfImage + 0xFFFF) & ~uintptr_t(0xFFFF);
+    for (uintptr_t a = start; a < reinterpret_cast<uintptr_t>(base) + 0x7FFF0000; a += 0x10000)
+        if (void* p = VirtualAlloc(reinterpret_cast<void*>(a), 4096, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE))
+            return static_cast<uint8_t*>(p);
+    return nullptr;
+}
+
+// Length of a whole x64 prologue instruction that can be copied elsewhere unchanged (no RIP-relative
+// operand); 0 for anything else. Covers what D3D12 / DXGI exports start with.
+size_t CopyableLength(const uint8_t* p) {
+    if (p[0] >= 0x50 && p[0] <= 0x57) return 1;                                     // push r64
+    if ((p[0] == 0x40 || p[0] == 0x41) && p[1] >= 0x50 && p[1] <= 0x57) return 2;   // push r64 (REX)
+    if ((p[0] == 0x48 || p[0] == 0x4C) && p[1] == 0x89 && (p[2] & 0xC7) == 0x44 && p[3] == 0x24) return 5;  // mov [rsp+d8], r64
+    if (p[0] == 0x48 && p[1] == 0x83 && p[2] == 0xEC) return 4;                     // sub rsp, imm8
+    if (p[0] == 0x48 && p[1] == 0x81 && p[2] == 0xEC) return 7;                     // sub rsp, imm32
+    if (p[0] == 0x48 && p[1] == 0x8B && p[2] == 0xC4) return 3;                     // mov rax, rsp
+    return 0;
+}
+
+// Puts a jump to <hook> at the start of <fn>, for callers that hold its address from before
+// (Village resolved D3D12CreateDevice before plugins load). If <fn> starts with another hook's
+// relative jump (ReShade's), that jump is pointed at <hook> instead and *orig is where it went;
+// else its first instructions move to a trampoline (*orig) that jumps back.
+bool InlineHook(void* fn, void* hook, void** orig) {
+    auto* p = static_cast<uint8_t*>(fn);
+    uint8_t* stub = AllocNear(fn);
+    if (!stub) return false;
+    // stub: jmp [rip+0] -> hook (the 5-byte jump at fn lands here); trampoline after it.
+    const uint8_t abs[6] = {0xFF, 0x25, 0, 0, 0, 0};
+    memcpy(stub, abs, 6);
+    memcpy(stub + 6, &hook, 8);
+    uint8_t* tramp = stub + 16;
+    if (p[0] == 0xE9) {
+        *orig = p + 5 + *reinterpret_cast<int32_t*>(p + 1);
+    } else if (p[0] == 0xFF && p[1] == 0x25) {
+        *orig = *reinterpret_cast<void**>(p + 6 + *reinterpret_cast<int32_t*>(p + 2));
+    } else {
+        size_t n = 0;
+        while (n < 5) {
+            const size_t len = CopyableLength(p + n);
+            if (!len) {
+                Log("inline hook: unknown instruction %02x %02x %02x at +%zu", p[n], p[n + 1], p[n + 2], n);
+                return false;
+            }
+            n += len;
+        }
+        memcpy(tramp, p, n);
+        memcpy(tramp + n, abs, 6);
+        void* back = p + n;
+        memcpy(tramp + n + 6, &back, 8);
+        *orig = tramp;
+    }
+    FlushInstructionCache(GetCurrentProcess(), stub, 64);
+    DWORD old;
+    if (!VirtualProtect(p, 5, PAGE_EXECUTE_READWRITE, &old)) return false;
+    const int32_t rel = static_cast<int32_t>(stub - (p + 5));
+    p[0] = 0xE9;
+    memcpy(p + 1, &rel, 4);
+    VirtualProtect(p, 5, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), p, 5);
+    return true;
+}
+
+// Points <name> in a module's export table at <hook> (through a jump stub within 2 GB above the
+// module: export entries are 32-bit offsets from its base), so whoever looks it up from now on
+// (GetProcAddress, from any module) gets the hook. *orig gets the real function.
+bool PatchExport(HMODULE m, const char* name, void* hook, void** orig) {
+    auto* base = reinterpret_cast<uint8_t*>(m);
+    auto* nt = reinterpret_cast<IMAGE_NT_HEADERS*>(base + reinterpret_cast<IMAGE_DOS_HEADER*>(base)->e_lfanew);
+    const IMAGE_DATA_DIRECTORY& dir = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT];
+    if (!dir.VirtualAddress) return false;
+    auto* exp = reinterpret_cast<IMAGE_EXPORT_DIRECTORY*>(base + dir.VirtualAddress);
+    auto* names = reinterpret_cast<DWORD*>(base + exp->AddressOfNames);
+    auto* ords = reinterpret_cast<WORD*>(base + exp->AddressOfNameOrdinals);
+    auto* funcs = reinterpret_cast<DWORD*>(base + exp->AddressOfFunctions);
+    for (DWORD i = 0; i < exp->NumberOfNames; ++i) {
+        if (strcmp(reinterpret_cast<const char*>(base + names[i]), name)) continue;
+        DWORD* slot = &funcs[ords[i]];
+        // A stub above the module, within reach of a 32-bit offset.
+        uint8_t* stub = nullptr;
+        const uintptr_t start = (reinterpret_cast<uintptr_t>(base) + nt->OptionalHeader.SizeOfImage + 0xFFFF) & ~uintptr_t(0xFFFF);
+        for (uintptr_t a = start; a < reinterpret_cast<uintptr_t>(base) + 0x7FFF0000 && !stub; a += 0x10000)
+            stub = static_cast<uint8_t*>(VirtualAlloc(reinterpret_cast<void*>(a), 4096, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE));
+        if (!stub) return false;
+        const uint8_t jmp[6] = {0xFF, 0x25, 0, 0, 0, 0};  // jmp [rip+0]
+        memcpy(stub, jmp, 6);
+        memcpy(stub + 6, &hook, sizeof(void*));
+        FlushInstructionCache(GetCurrentProcess(), stub, 16);
+        *orig = base + *slot;
+        DWORD old;
+        if (!VirtualProtect(slot, sizeof(DWORD), PAGE_READWRITE, &old)) return false;
+        *slot = static_cast<DWORD>(stub - base);
+        VirtualProtect(slot, sizeof(DWORD), old, &old);
+        return true;
+    }
+    return false;
 }
 
 // Replaces every slot of the game's import table that holds <target>.
@@ -1223,8 +1359,25 @@ void InstallEarly(HMODULE) {
         if (g_realFactory1) f1 = PatchIat(reinterpret_cast<void*>(g_realFactory1), reinterpret_cast<void*>(&HkFactory1));
         if (g_realFactory2) f2 = PatchIat(reinterpret_cast<void*>(g_realFactory2), reinterpret_cast<void*>(&HkFactory2));
     }
-    Log("hooks installed (GetProcAddress imports %d, CreateDXGIFactory1/2 %d/%d)%s", n, f1, f2,
-        GetModuleHandleW(L"d3d12.dll") ? " - d3d12.dll was already loaded" : "");
+    // d3d12.dll loaded already (REFramework or ReShade loaded it): D3D12CreateDevice itself is hooked
+    // (in its code), for games that hold its address from before plugins load (Village). If that
+    // can't be done, its export is pointed at the hook (later lookups from any module).
+    const char* how = "through the game's GetProcAddress (d3d12.dll not loaded yet)";
+    if (HMODULE d3d12 = GetModuleHandleW(L"d3d12.dll")) {
+        void* fn = reinterpret_cast<void*>(GetProcAddress(d3d12, "D3D12CreateDevice"));
+        const uint8_t first = fn ? *static_cast<const uint8_t*>(fn) : 0;
+        void* real = nullptr;
+        if (fn && InlineHook(fn, reinterpret_cast<void*>(&HkD3D12CreateDevice), &real)) {
+            g_realCreateDevice = reinterpret_cast<CreateDeviceFn>(real);
+            how = first == 0xE9 ? "in its code (chained to another hook, ReShade's)" : "in its code";
+        } else if (PatchExport(d3d12, "D3D12CreateDevice", reinterpret_cast<void*>(&HkD3D12CreateDevice), &real)) {
+            g_realCreateDevice = reinterpret_cast<CreateDeviceFn>(real);
+            how = "in d3d12.dll's export table (its code couldn't be hooked)";
+        } else {
+            how = "NOT hooked in d3d12.dll (only the game's GetProcAddress)";
+        }
+    }
+    Log("hooks installed (GetProcAddress imports %d, CreateDXGIFactory1/2 %d/%d); D3D12CreateDevice %s", n, f1, f2, how);
 }
 
 void Uninstall() {}
