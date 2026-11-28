@@ -1,6 +1,6 @@
 -- RE7DLSS companion script (REFramework autorun).
 -- Sets Resident Evil 7's Image Quality (render scale) to the DLSS mode chosen in the
--- RE7DLSS ReShade overlay. The add-on writes the wanted scale (0 = leave the game's slider
+-- RE7DLSS settings (REFramework menu, RE7DLSS section). The add-on writes the wanted scale (0 = leave the game's slider
 -- alone) to reframework/data/RE7DLSS_mode.txt; this script applies it through
 -- via.render.RenderConfig.ImageQualityRate, keeps it applied if the menu changes it, and puts the
 -- game's own value back when the mode goes back to the slider or DLSS is switched off. It writes

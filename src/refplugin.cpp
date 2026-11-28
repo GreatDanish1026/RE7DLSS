@@ -12,6 +12,10 @@
 
 #include "version.h"  // RD_PRODUCT
 
+// rdx_overlay.cpp (2.0: this plugin is the whole add-on).
+void rdx_OnDrawUi(void* refwModule);
+void rd_LogPlugin(bool pre, bool post, bool ui, int apiMinor);
+
 namespace {
 
 struct PluginVersion {
@@ -36,6 +40,12 @@ struct PluginFunctions {
     LogFn log_error;
     LogFn log_warn;
     LogFn log_info;
+    // Plugin API 1.15 (REFramework's include/reframework/API.h).
+    void* is_drawing_ui;
+    void* create_script_state;
+    void* delete_script_state;
+    bool (*on_imgui_frame)(void (*)(void*));
+    bool (*on_imgui_draw_ui)(void (*)(void*));
 };
 
 struct InitializeParam {
@@ -55,7 +65,10 @@ bool Resolve() {
     const DWORD now = GetTickCount();
     if (g_looked && now - lastTry < 1000) return false;  // look again about once a second
     g_looked = true, lastTry = now;
-    HMODULE addon = GetModuleHandleA(RD_PRODUCT ".addon64");
+    // 2.0: the add-on is this same DLL (the REFramework plugin).
+    HMODULE addon = nullptr;
+    GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                       reinterpret_cast<LPCWSTR>(&Resolve), &addon);
     if (!addon) return false;
     g_before = reinterpret_cast<Fn>(GetProcAddress(addon, RD_PRODUCT "_GameFrameStart"));
     g_after = reinterpret_cast<Fn>(GetProcAddress(addon, RD_PRODUCT "_GameInputRead"));
@@ -70,6 +83,9 @@ void AfterUpdateHid() {
     if (g_after) g_after();
 }
 
+void* g_refw = nullptr;
+void DrawUi(void*) { rdx_OnDrawUi(g_refw); }
+
 }  // namespace
 
 extern "C" __declspec(dllexport) void reframework_plugin_required_version(PluginVersion* version) {
@@ -81,8 +97,15 @@ extern "C" __declspec(dllexport) bool reframework_plugin_initialize(const Initia
     const bool pre = param->functions->on_pre_application_entry("UpdateHID", &BeforeUpdateHid);
     const bool post = param->functions->on_post_application_entry &&
                       param->functions->on_post_application_entry("UpdateHID", &AfterUpdateHid);
+    // 2.0: the settings overlay in REFramework's menu (plugin API 1.15+; older ones lack the field).
+    bool ui = false;
+    g_refw = param->reframework_module;
+    if (param->version && param->version->major == 1 && param->version->minor >= 15 && param->functions->on_imgui_draw_ui)
+        ui = param->functions->on_imgui_draw_ui(&DrawUi);
     if (param->functions->log_info)
-        param->functions->log_info("[" RD_PRODUCT "_Reflex] input update callbacks: before %s, after %s", pre ? "ok" : "failed",
-                                   post ? "ok" : "failed");
+        param->functions->log_info("[" RD_PRODUCT "] input update callbacks: before %s, after %s; menu %s (plugin API %d.%d)",
+                                   pre ? "ok" : "failed", post ? "ok" : "failed", ui ? "ok" : "unavailable",
+                                   param->version ? param->version->major : 0, param->version ? param->version->minor : 0);
+    rd_LogPlugin(pre, post, ui, param->version ? param->version->minor : -1);
     return pre;
 }

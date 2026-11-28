@@ -51,6 +51,16 @@
 #include "ui_alpha_cs.h"  // kUiAlphaCs: ui_alpha.hlsl compiled by build.ps1
 #include "version.h"
 
+namespace rdx {  // rdx_hooks.cpp: the game's swapchain creation (see HookFactory)
+void SetSwapchainCreators(HRESULT(STDMETHODCALLTYPE* create)(IDXGIFactory*, IUnknown*, DXGI_SWAP_CHAIN_DESC*, IDXGISwapChain**),
+                          HRESULT(STDMETHODCALLTYPE* createForHwnd)(IDXGIFactory2*, IUnknown*, HWND, const DXGI_SWAP_CHAIN_DESC1*,
+                                                                    const DXGI_SWAP_CHAIN_FULLSCREEN_DESC*, IDXGIOutput*, IDXGISwapChain1**),
+                          HRESULT(STDMETHODCALLTYPE** origCreate)(IDXGIFactory*, IUnknown*, DXGI_SWAP_CHAIN_DESC*, IDXGISwapChain**),
+                          HRESULT(STDMETHODCALLTYPE** origCreateForHwnd)(IDXGIFactory2*, IUnknown*, HWND, const DXGI_SWAP_CHAIN_DESC1*,
+                                                                         const DXGI_SWAP_CHAIN_FULLSCREEN_DESC*, IDXGIOutput*,
+                                                                         IDXGISwapChain1**));
+}
+
 using namespace reshade::api;
 
 namespace rd {
@@ -1250,23 +1260,11 @@ HRESULT STDMETHODCALLTYPE HookCreateForHwnd(IDXGIFactory2* f, IUnknown* dev, HWN
     return hr;
 }
 
-// Hooks the system DXGI factory's vtable (shared by every factory, ReShade's hooks included).
-bool HookFactory(std::string& error) {
-    wchar_t sys[MAX_PATH] = {};
-    GetSystemDirectoryW(sys, MAX_PATH);
-    HMODULE dxgi = LoadLibraryW((std::wstring(sys) + L"\\dxgi.dll").c_str());
-    using CreateFactory2 = HRESULT(WINAPI*)(UINT, REFIID, void**);
-    auto create = dxgi ? reinterpret_cast<CreateFactory2>(GetProcAddress(dxgi, "CreateDXGIFactory2")) : nullptr;
-    IDXGIFactory2* factory = nullptr;
-    if (!create || FAILED(create(0, IID_PPV_ARGS(&factory)))) {
-        error = "couldn't create a DXGI factory";
-        return false;
-    }
-    const bool ok = Patch(factory, 10, reinterpret_cast<void*>(&HookCreateSwapChain), reinterpret_cast<void**>(&g_createSwapChain)) &&
-                    Patch(factory, 15, reinterpret_cast<void*>(&HookCreateForHwnd), reinterpret_cast<void**>(&g_createForHwnd));
-    factory->Release();
-    if (!ok) error = "couldn't hook swapchain creation";
-    return ok;
+// 2.0: the system DXGI factory's swapchain creation is hooked by the rdx layer (rdx_hooks.cpp);
+// it hands the game's swapchain creation to these (g_create* get the unhooked creation).
+bool HookFactory(std::string&) {
+    rdx::SetSwapchainCreators(&HookCreateSwapChain, &HookCreateForHwnd, &g_createSwapChain, &g_createForHwnd);
+    return true;
 }
 
 // ---------------------------------------------------------------- Streamline
@@ -2028,7 +2026,7 @@ void DrawFrameGenAdvanced() {
         Log("settings: Reflex wait before input %s", g_set.reflexAtInput ? "on" : "off");
     }
     Help("With DLSS frame generation (on by default): Reflex's wait happens on the game's own thread right before it "
-         "reads input (keyboard and mouse, controllers), through the RE7DLSS_Reflex plugin for REFramework, instead of on "
+         "reads input (keyboard and mouse, controllers), through REFramework (RE7DLSS is its plugin), instead of on "
          "the render thread after the game has already read the frame's input. In testing (Resident Evil 4) it cut the time from input to "
          "the finished frame by about 14 ms. Off: the wait on the render thread, as in earlier versions. Switches right away.");
 }
@@ -2085,7 +2083,7 @@ extern "C" __declspec(dllexport) void RE7DLSS_GameFrameStart() {
     g_refFrameAt = Now();
     if (!g_refLogged) {
         g_refLogged = true;
-        Log("Reflex at input: frame start from REFramework's input update (RE7DLSS_Reflex plugin), thread %lu",
+        Log("Reflex at input: frame start from REFramework's input update, thread %lu",
             static_cast<unsigned long>(GetCurrentThreadId()));
     }
     g_refToken = GameFrameStart();
